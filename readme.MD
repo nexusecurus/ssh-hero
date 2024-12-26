@@ -63,9 +63,10 @@
     - [1. Clone the Repository](#1-clone-the-repository)
     - [2. Change into the Cloned Directory](#2-change-into-the-cloned-directory)
     - [3. Give execution permission to file](#3-give-execution-permission-to-file)
-    - [4. Add program to be available System-Wide (privilege escalation required)](#4-add-program-to-be-available-system-wide-privilege-escalation-required)
+    - [4. Add program to be available System-Wide **privilege escalation required** (OPTIONAL)](#4-add-program-to-be-available-system-wide-privilege-escalation-required-optional)
     - [5. Verify Installation](#5-verify-installation)
-    - [6. Usage](#6-usage)
+    - [6. Usage without adding to System-Wide PATH (Must be run inside cloned directory ssh-hero)](#6-usage-without-adding-to-system-wide-path-must-be-run-inside-cloned-directory-ssh-hero)
+    - [7. Usage with System-Wide PATH](#7-usage-with-system-wide-path)
   - [Special Notes on Security](#special-notes-on-security)
   - [Contributing](#contributing)
   - [License](#license)
@@ -142,7 +143,7 @@ Find the source code on GitHub:
   - ARM (e.g., Raspberry Pi, Apple Silicon)
 - **Recommended System Specifications**:
   - Minimum: If you can install linux on your device, it works.
-  - Recommended: 1GB RAM, 1.5GHz processor
+  - Recommended: 128MB RAM, 486 120MHz processor or Higher
 
 ---
 ---
@@ -174,21 +175,31 @@ cd ssh-hero
 chmod +x ssh-hero
 ```
 
-### 4. Add program to be available System-Wide (privilege escalation required)
+### 4. Add program to be available System-Wide **privilege escalation required** (OPTIONAL)
 ```bash
 sudo cp ssh-hero /usr/local/bin/
 ```
 
 ### 5. Verify Installation
 ```bash
-ssh-hero -h
+ssh-hero -v
 ```
 This should display the version of SSH-Hero installed on your system.
 
-### 6. Usage
+### 6. Usage without adding to System-Wide PATH (Must be run inside cloned directory ssh-hero)
 ```bash
-ssh-hero
+./ssh-hero                  --> Run SSH-Hero interactively.
+./ssh-hero -h or --help     --> Display help message.
+./ssh-hero -v or --version  --> Display version information.
 ```
+
+### 7. Usage with System-Wide PATH
+```bash
+ssh-hero                    --> Run SSH-Hero interactively.
+ssh-hero -h or --help       --> Display help message.
+ssh-hero -v or --version    --> Display version information.
+```
+
 ---
 ---
 
@@ -196,12 +207,12 @@ ssh-hero
 
 We all know that use ssh-agent inside a program is a pain the butt, cause it opens up a new PID every time you run it, and you end up with a bunch of agents running around.
 
-Due to macOS ssh nature, the problem was solved, but when it comes to Linux, i wasn't able to found a proper solution without compromising on security even more.
+Due to macOS ssh nature, the problem was solved, but when it comes to Linux, i wasn't able to found a proper solution without compromising on security.
 
 So, just for security advice, make sure of the following:
 
-- When you don't need the loaded keys anymore, **unload and terminate all SSH agents** to ensure that loaded keys are no longer available in the system.  
-- There's a menu option to **Unload Keys** and **Kill All Agents** from the menu.
+- When you don't need the loaded keys anymore, **unload** and **KILL** all keys and SSH agents to ensure that loaded keys are no longer available in the system after the session ends.
+- There's both a **Unload Keys** and **Kill All Agents** option in the menu.
 
 ---
 ---
@@ -224,11 +235,12 @@ SSH-Hero is released under the MIT License.
 
 ## Disclaimer
 
-SSH-Hero is in beta (v0.1b). While every effort is made to ensure reliability, users should proceed with caution and test thoroughly before use in production environments.
+SSH-Hero uses the ssh original built-in commands to the generate, load and unload key functions. This software is basically an automation and GUI version for those wanting a prettier version, or if you are a newcomer to linux and want a easier/simpler way of managing SSH Keys. Although SSH-Hero is in beta (v0.1), every effort was made to ensure reliability, users shouldn't be worried of any type of security issues.
 
 ---
 ---
 
+Nevertheless,
 The authors of SSH-Hero are not responsible for any misuse or security breaches caused by the use of this software. Use it at your own risk.
 
 ## Author
