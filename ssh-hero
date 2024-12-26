@@ -1,10 +1,13 @@
 #!/bin/bash
 
-VERSION="0.1.0"
 trap ctrl_c SIGINT
+
+
+DEFAULT_LOCATION="$HOME/.ssh"
 
 VERSION="v0.1.0"
 USAGE="./ssh-hero [-h | --help] [-v | --version]"
+
 
 show_version() {
     echo "Version: $VERSION"
@@ -41,8 +44,9 @@ SSH Key Creation Options Help:
         - A passphrase adds an extra layer of protection to your private key.
         - You will be prompted to enter the passphrase when unlocking your private key.
 
-WARNING: Before logging out of your current session, ensure you have unloaded all private keys from ssh-agent and killed all ssh-agent processes.
-         There is options in the MENU for both actions.
+WARNING:    Before logging out of your current session, ensure you have unloaded all private keys from ssh-agent and killed all ssh-agent processes.
+            There is options in the MENU for both actions.
+
 
 SSH-HERO - SSH Management Terminal/GUI Tool
 Author: NexuSecurus
@@ -69,57 +73,62 @@ case "$1" in
         ;;
 esac
 
-function ctrl_c() {
+ctrl_c() {
     dialog --backtitle "NexuSecurus SSH Manager v0.1.0" \
-        --title "QUIT!!!" --yesno "\nAre you sure you want to quit?" 7 50
-    [ $? -eq 0 ] && { clear; exit 0; } || main_menu
+        --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Exiting..." --infobox \
+        "\n Thank you for using SSH-HERO\n\n Till next time..." \
+        8 40
+    sleep 2
+    clear
+    exit 0
 }
 
-check_mac_dependencies() {
-    if ! command -v brew &> /dev/null; then
-        echo "Homebrew is not installed. Please install Homebrew first."
-        echo "Visit https://brew.sh for installation instructions."
+
+check_dependencies() {
+    REQUIRED_TOOLS=("dialog")
+    
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS specific checks
+        if ! command -v brew &> /dev/null; then
+            echo "Homebrew is not installed. Please install Homebrew first."
+            echo "Visit https://brew.sh for installation instructions."
+            exit 1
+        fi
+        
+        for TOOL in "${REQUIRED_TOOLS[@]}"; do
+            if ! brew list "$TOOL" &>/dev/null; then
+                echo "Installing missing dependency: $TOOL..."
+                brew install "$TOOL" &>/dev/null
+            fi
+        done
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # Linux specific checks
+        REQUIRED_PACKAGES=("dialog" "openssh-client" "openssh-server")
+        
+        for PACKAGE in "${REQUIRED_PACKAGES[@]}"; do
+            if ! dpkg-query -W -f='${Status}' "$PACKAGE" | grep -q 'install ok installed'; then
+                echo "To install required missing dependency: $PACKAGE, you need to have sudo privileges."
+                echo ""
+                echo "If your prefer to do it manually you can use the following command:"
+                echo ""
+                echo "sudo apt-get update && sudo apt-get install $PACKAGE"
+                echo ""
+                echo "Press Ctrl+C to cancel and install manually, otherwise enter your sudo password to proceed with the installation."
+                echo "If all dependencies are installed, SSH-Hero doesn't need sudo privileges to run."
+                sudo apt-get update -qq && sudo apt-get install -y "$PACKAGE" &>/dev/null
+                echo "Installing missing dependency: $PACKAGE..."
+            fi
+        done
+    else
+        echo "Unsupported operating system: $OSTYPE"
         exit 1
     fi
-
-    REQUIRED_TOOLS=("dialog")
-    for TOOL in "${REQUIRED_TOOLS[@]}"; do
-        if ! brew list "$TOOL" &>/dev/null; then
-            echo "Installing missing dependency: $TOOL..."
-            brew install "$TOOL"
-        fi
-    done
-}
-
-check_linux_dependencies() {
-    REQUIRED_PACKAGES=("dialog" "openssh-client" "openssh-server")
-    MISSING_PACKAGES=($(dpkg-query -W -f='${Status}' ${REQUIRED_PACKAGES[@]} 2>/dev/null | grep -v "install ok installed" | awk '{print $1}'))
-
-    if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
-        echo "Installing missing dependencies: ${MISSING_PACKAGES[*]}..."
-        sudo apt-get update -qq && sudo apt-get install -y "${MISSING_PACKAGES[@]}" > /dev/null
-    fi
-}
-
-DEPENDENCIES_INSTALLED=0
-
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    check_mac_dependencies
-    DEPENDENCIES_INSTALLED=$?
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    check_linux_dependencies
-    DEPENDENCIES_INSTALLED=$?
-else
-    echo "Unsupported operating system: $OSTYPE"
-    exit 1
-fi
-
-if [ $DEPENDENCIES_INSTALLED -eq 0 ]; then
+    
+    # If we reach here, all dependencies are installed
     echo "Starting program..."
     sleep 1
-fi
+}
 
-DEFAULT_LOCATION="$HOME/.ssh"
 
 if ! pgrep -x "ssh-agent" > /dev/null; then
     eval "$(ssh-agent -s)" > /dev/null
@@ -502,5 +511,6 @@ main_menu() {
     done
 }
 
+check_dependencies
 main_menu
 clear
