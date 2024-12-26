@@ -1,0 +1,506 @@
+#!/bin/bash
+
+VERSION="0.1.0"
+trap ctrl_c SIGINT
+
+VERSION="v0.1.0"
+USAGE="./ssh-hero [-h | --help] [-v | --version]"
+
+show_version() {
+    echo "Version: $VERSION"
+    exit 0
+}
+
+show_help() {
+    cat <<EOF
+    
+Usage: $USAGE
+
+Options:
+    -h, --help      Show this help message and exit.
+    -v, --version   Show the version of the ssh-hero tool.
+
+SSH Key Creation Options Help:
+
+    - Key Type: rsa, ecdsa, ed25519
+        - rsa: RSA its a popular choice for its compatibility and security.
+        - ecdsa: Elliptic Curve Digital Signature Algorithm, it's faster than RSA but less secure.
+        - ed25519: Edwards-curve Digital Signature Algorithm, it's the fastest and most secure option.
+
+    - Key Size: 2048, 3072, 4096
+        - 2048: Recommended for most use cases.
+        - 3072: Provides better security than 2048 but is slower.
+        - 4096: Provides the highest level of security but is the slowest.
+
+    - Rounds: 16 to 65536
+    - Rounds determine the number of iterations for key generation.
+    - Higher rounds increase security but slow down key generation, and passphrase unlock time.
+    - TIP: Values above 10000 will take minutes or even hours to generate or unlock a key.
+
+    - Passphrase: Optional, but recommended for added security.
+        - A passphrase adds an extra layer of protection to your private key.
+        - You will be prompted to enter the passphrase when unlocking your private key.
+
+WARNING: Before logging out of your current session, ensure you have unloaded all private keys from ssh-agent and killed all ssh-agent processes.
+         There is options in the MENU for both actions.
+
+SSH-HERO - SSH Management Terminal/GUI Tool
+Author: NexuSecurus
+
+Version: $VERSION
+EOF
+    exit 0
+}
+
+# Main script logic
+case "$1" in
+    -h|--help)
+        show_help
+        ;;
+    -v|--version)
+        show_version
+        ;;
+    *)
+        if [[ ! -z "$1" ]]; then
+            echo "Error: Invalid flag '$1'"
+            echo "Usage: $USAGE"
+            exit 1
+        fi
+        ;;
+esac
+
+function ctrl_c() {
+    dialog --backtitle "NexuSecurus SSH Manager v0.1.0" \
+        --title "QUIT!!!" --yesno "\nAre you sure you want to quit?" 7 50
+    [ $? -eq 0 ] && { clear; exit 0; } || main_menu
+}
+
+check_mac_dependencies() {
+    if ! command -v brew &> /dev/null; then
+        echo "Homebrew is not installed. Please install Homebrew first."
+        echo "Visit https://brew.sh for installation instructions."
+        exit 1
+    fi
+
+    REQUIRED_TOOLS=("dialog")
+    for TOOL in "${REQUIRED_TOOLS[@]}"; do
+        if ! brew list "$TOOL" &>/dev/null; then
+            echo "Installing missing dependency: $TOOL..."
+            brew install "$TOOL"
+        fi
+    done
+}
+
+check_linux_dependencies() {
+    REQUIRED_PACKAGES=("dialog" "openssh-client" "openssh-server")
+    MISSING_PACKAGES=($(dpkg-query -W -f='${Status}' ${REQUIRED_PACKAGES[@]} 2>/dev/null | grep -v "install ok installed" | awk '{print $1}'))
+
+    if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
+        echo "Installing missing dependencies: ${MISSING_PACKAGES[*]}..."
+        sudo apt-get update -qq && sudo apt-get install -y "${MISSING_PACKAGES[@]}" > /dev/null
+    fi
+}
+
+DEPENDENCIES_INSTALLED=0
+
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    check_mac_dependencies
+    DEPENDENCIES_INSTALLED=$?
+elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    check_linux_dependencies
+    DEPENDENCIES_INSTALLED=$?
+else
+    echo "Unsupported operating system: $OSTYPE"
+    exit 1
+fi
+
+if [ $DEPENDENCIES_INSTALLED -eq 0 ]; then
+    echo "Starting program..."
+    sleep 1
+fi
+
+DEFAULT_LOCATION="$HOME/.ssh"
+
+if ! pgrep -x "ssh-agent" > /dev/null; then
+    eval "$(ssh-agent -s)" > /dev/null
+    if [ $? -ne 0 ]; then
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Error" --msgbox \
+            "\n Failed to start ssh-agent.\n Please ensure ssh-agent is installed and try again.\n" 8 50
+        exit 1
+    fi
+fi
+
+
+
+create_ssh() {
+    DEFAULT_FILENAME="id_rsa"
+    DEFAULT_TYPE="rsa"
+    DEFAULT_BITS="2048"
+    DEFAULT_ROUNDS="16"
+    DEFAULT_COMMENT="$USER@$HOSTNAME"
+
+    TEMP_FILE=$(mktemp)
+
+    dialog \
+        --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Create SSH Key" --form \
+        "\nEnter SSH key details (press Enter to use defaults):\n" 14 80 8 \
+        "Location Folder :" 1 1 "$DEFAULT_LOCATION" 1 35 40 0 \
+        "SSH Key Name :" 2 1 "$DEFAULT_FILENAME" 2 35 40 0 \
+        "Key Type - rsa,ecdsa,ed25519 :" 3 1 "$DEFAULT_TYPE" 3 35 40 0 \
+        "Bits - 1024,2048,3072,4096 :" 4 1 "$DEFAULT_BITS" 4 35 40 0 \
+        "Rounds :" 5 1 "$DEFAULT_ROUNDS" 5 35 40 0 \
+        "Comment :" 6 1 "$DEFAULT_COMMENT" 6 35 40 0 \
+        2> "$TEMP_FILE"
+
+    if [ $? -ne 0 ]; then
+        rm -f "$TEMP_FILE"
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Cancelled" --msgbox \
+            "\n SSH key creation was cancelled by the user." 6 50
+        return
+    fi
+
+    LOCATION=$(sed -n 1p "$TEMP_FILE")
+    FILENAME=$(sed -n 2p "$TEMP_FILE")
+    TYPE=$(sed -n 3p "$TEMP_FILE")
+    BITS=$(sed -n 4p "$TEMP_FILE")
+    ROUNDS=$(sed -n 5p "$TEMP_FILE")
+    COMMENT=$(sed -n 6p "$TEMP_FILE")
+    rm -f "$TEMP_FILE"
+
+    LOCATION=${LOCATION:-$DEFAULT_LOCATION}
+    FILENAME=${FILENAME:-$DEFAULT_FILENAME}
+    TYPE=${TYPE:-$DEFAULT_TYPE}
+    BITS=${BITS:-$DEFAULT_BITS}
+    ROUNDS=${ROUNDS:-$DEFAULT_ROUNDS}
+    COMMENT=${COMMENT:-$DEFAULT_COMMENT}
+
+    dialog \
+        --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Confirm Key Details" --yesno  \
+        "\n Location: $LOCATION\n Filename: $FILENAME\n Key Type: $TYPE\n Bits: $BITS\n Rounds: $ROUNDS\n Comment: $COMMENT\n\n Proceed with SSH key creation?\n" 14 60
+
+    if [ $? -eq 0 ]; then
+
+        if [ -e "$LOCATION/$FILENAME" ] || [ -e "$LOCATION/$FILENAME.pub" ]; then
+            dialog \
+                --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "WARNING!" --defaultno  --yesno \
+                "\n A key file with the name '$FILENAME' already exists at '$LOCATION'.\n\n Do you want to overwrite it?\n" 10 60
+            
+            if [ $? -ne 0 ]; then
+                dialog \
+                    --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Cancelled" --msgbox \
+                    "\n SSH key creation was cancelled by the user." 6 50
+                return
+            else
+                rm -f "$LOCATION/$FILENAME" "$LOCATION/$FILENAME.pub"
+            fi
+        fi
+
+        clear
+
+        echo -e "\033[0;32mUsing a passphrase adds an extra layer of security to your SSH key. Its highly recommended.\033[0m\n"
+
+
+        ssh-keygen -t "$TYPE" -a "$ROUNDS" -b "$BITS" -C "$COMMENT" -f "$LOCATION/$FILENAME" > /dev/null 2>&1
+        
+        if [ $? -eq 0 ]; then
+            dialog \
+                --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Success" --msgbox \
+                "\n SSH keys created successfully!\n\n Details:\n  - Private Key: $LOCATION/$FILENAME\n  - Public Key: $LOCATION/${FILENAME}.pub" 11 60
+        else
+            dialog \
+                --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Error" --msgbox \
+                "\n Failed to create SSH key.\n" 8 40
+        fi
+    else
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Cancelled" --msgbox \
+            "\n SSH key creation was cancelled by the user." 6 50
+        return
+    fi
+}
+
+remove_ssh() {
+    if [ ! -d "$DEFAULT_LOCATION" ]; then
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Error" --msgbox \
+            "\n The SSH directory does not exist:\n $DEFAULT_LOCATION" 8 50
+        return 1
+    fi
+
+    KEY_FILES=$(find "$DEFAULT_LOCATION" -maxdepth 1 -type f \
+        ! -name "*.pub" \
+        ! -name "authorized_keys" \
+        ! -name "config" \
+        ! -name "known_hosts" \
+        ! -name "known_hosts.old" \
+        2>/dev/null)
+
+    if [ -z "$KEY_FILES" ]; then
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "No Private Keys Found" --msgbox \
+        "\n No private SSH keys were found in the directory:\n\n $DEFAULT_LOCATION" 8 50
+        return 1
+    fi
+
+    MENU_OPTIONS=()
+    KEY_COUNT=0
+    for FILE in $KEY_FILES; do
+        MENU_OPTIONS+=("$FILE" "$(basename "$FILE")")
+        ((KEY_COUNT++))
+    done
+
+    SELECTED_KEY=$(dialog \
+        --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --ok-label "Delete" --cancel-label "Back" --title "Remove SSH Key ----- Keys Found: $KEY_COUNT" --menu \
+        "Select an SSH key to delete:" 20 70 8 \
+        "${MENU_OPTIONS[@]}" \
+        2>&1 >/dev/tty)
+
+    if [ $? -ne 0 ]; then
+    dialog \
+        --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Cancelled" --msgbox \
+        "\n SSH key deletion was cancelled by the user." 6 50
+    return 1
+    fi
+
+    dialog \
+        --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Confirm Deletion" --defaultno --yesno \
+        "\n Are you sure you want to delete the following SSH key?\n\n $SELECTED_KEY\n\n WARNING: This action cannot be undone." 10 60
+
+    if [ $? -ne 0 ]; then
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Cancelled" --msgbox \
+            "\n SSH key deletion was cancelled by the user." 6 50
+        return 1
+    fi
+
+    rm -f "$SELECTED_KEY" "${SELECTED_KEY}.pub" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Success" --msgbox \
+            "\n Following SSH key deleted successfully:\n\n $SELECTED_KEY" 8 45
+    else
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Error" --msgbox \
+            "\n An error occurred while trying to delete the SSH key:\n\n $SELECTED_KEY" 8 60
+        return 1
+    fi
+
+    return 0
+}
+
+load_ssh_to_agent() {
+
+    KEY_FILES=$(find "$DEFAULT_LOCATION" -maxdepth 1 -type f \
+        ! -name "*.pub" \
+        ! -name "authorized_keys" \
+        ! -name "config" \
+        ! -name "known_hosts" \
+        ! -name "known_hosts.old" \
+
+        2>/dev/null)
+
+    if [ -z "$KEY_FILES" ]; then
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "No SSH Keys Found" --msgbox \
+            "\n No SSH private keys found in $DEFAULT_LOCATION.\n\n Please ensure keys are present in the directory. " 10 50
+        return 1
+    fi
+
+    KEY_LIST=()
+        KEY_COUNT=0
+    while IFS= read -r KEY_FILE; do
+        KEY_LIST+=("$KEY_FILE" "$(basename "$KEY_FILE")")
+        ((KEY_COUNT++))
+    done <<< "$KEY_FILES"
+
+    SELECTED_KEY=$(dialog \
+        --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --ok-label "Load" --title "Select SSH Key ----- Keys Found: $KEY_COUNT" --menu \
+        "Select a private key to load into the SSH agent:" \
+        20 70 ${#KEY_LIST[@]} "${KEY_LIST[@]}" \
+        2>&1 >/dev/tty)
+
+    if [ $? -ne 0 ]; then
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Operation Canceled" --msgbox \
+            "\n No SSH key selected.\n\n Operation canceled by the user." 8 45
+        return 1
+    fi
+
+    if [ $? -ne 0 ]; then
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Operation Canceled" --msgbox \
+            "\n Passphrase entry canceled by the user.\n" 6 45
+        return 1
+    fi
+
+    clear
+    ssh-add "$SELECTED_KEY" > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Success" --msgbox \
+            "\n SSH key successfully loaded into the SSH agent.\n\n Key: $SELECTED_KEY" 8 55
+        return 0
+    else
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Error" --msgbox \
+            "\n Failed to load the SSH key into the SSH agent.\n\n Possible reasons:\n  - Incorrect passphrase\n  - Corrupted key\n  - SSH agent misconfiguration\n" 12 60
+        return 1
+    fi
+}
+
+unload_keys() {
+
+    local loaded_keys
+    loaded_keys=$(ssh-add -l 2>&1) 
+
+    if [[ $? -ne 0 ]]; then
+        if ! pgrep -x "ssh-agent" > /dev/null; then
+            dialog \
+                --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "No SSH Agent Running" --msgbox \
+                "\n The ssh-agent is not running.\n\n Please start it and try again." 8 55
+        elif [[ "$loaded_keys" == "The agent has no identities." ]]; then
+            dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "No Keys Loaded" --msgbox \
+            "\n No keys are currently loaded into the SSH agent." 6 55
+        else
+            dialog \
+                --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "No Keys Loaded" --msgbox \
+                "\n You must have loaded keys to proceed." 6 50
+        fi
+        return 1
+    fi
+
+    formatted_keys=$(echo "$loaded_keys" | sed 's/ /\'$'\n/g')
+
+    if dialog \
+        --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Loaded Keys" --yesno \
+        "\n The following keys are currently loaded:\n\n$formatted_keys\n\nDo you want to remove all keys from the SSH agent?" 14 110; then
+
+        ssh-add -D
+
+        if [[ $? -eq 0 ]]; then
+            dialog \
+                --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Success" --msgbox \
+                "\n All keys have been removed from the SSH agent." 6 55
+        else
+            dialog \
+                --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Error" --msgbox \
+                "\n Failed to remove keys from the SSH agent." 6 50
+            return 1
+        fi
+    else
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Canceled" --msgbox \
+            "\n Key removal canceled." 6 30
+        return 0
+    fi
+}
+
+remove_ip_known_hosts() {
+
+    # Check if known_hosts exists
+    if [[ ! -f "$HOME/.ssh/known_hosts" ]]; then
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Error" --msgbox \
+            "\n No known_hosts file found at $HOME/.ssh/known_hosts.\n\n Aborting....." 8 70
+        return 1
+    fi
+
+    local input
+    input=$(dialog \
+                --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --ok-label "Clean" --title "SSH Known_Hosts IP Remove" --form "Enter the IP address and port:" 9 45 2 \
+                "IP Address :" 1 1 "" 1 20 20 0 \
+                "Port (Blank = 22) :" 2 1 "" 2 20 20 0 3>&1 1>&2 2>&3 3>&-)
+
+    local exit_status=$?
+    if [[ $exit_status -ne 0 || -z "$input" ]]; then
+        dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Aborted" --msgbox \
+            "\n No IP was entered.\n\n Aborting..." 8 30
+        return 1
+    fi
+
+    local ip port
+    ip=$(echo "$input" | sed -n '1p')
+    port=$(echo "$input" | sed -n '2p')
+
+    # If port is blank, set it to 22
+    if [[ -z "$port" ]]; then
+        port="22"
+    fi
+
+    local host_with_port
+    if [[ "$port" -eq 22 ]]; then
+        host_with_port="$ip"
+    else
+        host_with_port="\"[$ip]:$port\""
+    fi
+
+    local output
+    output=$(ssh-keygen -R "$host_with_port" 2>&1)
+    local ssh_status=$?
+
+    if [[ $ssh_status -ne 0 ]]; then
+        dialog \
+        --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Error" --msgbox \
+        "\n Failed to remove entries for IP '$ip' on port '$port'.\n\n$output" 15 70
+        return 1
+    fi
+    
+    dialog \
+        --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "Success" --msgbox \
+        "\n Completed request for '$ip' on port '$port'.\n\n :\n$output" 14 70
+    return 0
+}
+
+main_menu() {
+
+    while true; do
+        CHOICE=$(dialog \
+            --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "SSH Manager" --no-cancel --ok-label "Select" --menu \
+            "Select an option:" 15 70 8 \
+            "Create SSH Keys" "Generate new SSH keys." \
+            "Delete SSH Keys" "Delete existing SSH keys." \
+            "Load SSH Keys" "Load SSH keys into SSH-Agent." \
+            "Unload SSH Keys" "Unload SSH keys from SSH-Agent." \
+            "Remove IP" "Remove IP from Known_Hosts File" \
+            "Kill Agent" "Kill all SSH-Agent PID." \
+            "Exit" "You can hit CTRL+C at any time." \
+            2>&1 >/dev/tty)
+
+        case $CHOICE in
+            "Create SSH Keys")
+                create_ssh
+                ;;
+            "Delete SSH Keys")
+                remove_ssh
+                ;;
+            "Load SSH Keys")
+                load_ssh_to_agent
+                ;;
+            "Unload SSH Keys")
+                unload_keys
+                ;;
+            "Remove IP")
+                remove_ip_known_hosts
+                ;;
+            "Kill Agent")
+                pkill ssh-agent
+                dialog \
+                --backtitle "NexuSecurus SSH Manager v0.1.0 - Free Open Source Software" --title "SSH Manager" --msgbox \
+                "\n All SSH Agent Processes (PID) have been terminated." 6 60
+                ;;
+            "Exit")
+                break
+                ;;
+            *)
+                dialog --title "Invalid Option" --msgbox "\n Invalid option selected. Please try again." 7 50
+                ;;
+        esac
+    done
+}
+
+main_menu
+clear
