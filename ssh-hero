@@ -444,7 +444,7 @@ remove_ip_known_hosts() {
     if [[ "$port" -eq 22 ]]; then
         host_with_port="$ip"
     else
-        host_with_port="\"[$ip]:$port\""
+        host_with_port="[$ip]:$port"
     fi
 
     local output
